@@ -173,6 +173,7 @@ envelope_get_field(const char *name)
 
 void message_part_envelope_parse_from_header(pool_t pool,
 	struct message_part_envelope **data,
+	struct message_part_data_limits *limits ATTR_UNUSED,
 	struct message_header_line *hdr)
 {
 	struct message_part_envelope *d;
@@ -480,6 +481,7 @@ parse_content_header(struct message_part_data *data,
 
 void message_part_data_parse_from_header(pool_t pool,
 	struct message_part *part,
+	struct message_part_data_limits *limits,
 	struct message_header_line *hdr)
 {
 	struct message_part_data *part_data;
@@ -525,7 +527,8 @@ void message_part_data_parse_from_header(pool_t pool,
 
 	if (parent_rfc822) {
 		/* message/rfc822, we need the envelope */
-		message_part_envelope_parse_from_header(pool, &part_data->envelope, hdr);
+		message_part_envelope_parse_from_header(pool, &part_data->envelope,
+							limits, hdr);
 	}
 }
 
