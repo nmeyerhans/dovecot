@@ -60,7 +60,7 @@ static ssize_t i_stream_header_filter_read(struct istream_private *stream);
 static void i_stream_header_filter_destroy(struct iostream_private *stream)
 {
 	struct header_filter_istream *mstream =
-		(struct header_filter_istream *)stream;
+		container_of(stream, struct header_filter_istream, istream.iostream);
 
 	if (mstream->hdr_ctx != NULL)
 		message_parse_header_deinit(&mstream->hdr_ctx);
@@ -470,7 +470,7 @@ handle_end_body_with_lf(struct header_filter_istream *mstream, ssize_t ret)
 static ssize_t i_stream_header_filter_read(struct istream_private *stream)
 {
 	struct header_filter_istream *mstream =
-		(struct header_filter_istream *)stream;
+		container_of(stream, struct header_filter_istream, istream);
 	uoff_t v_offset;
 	ssize_t ret;
 
@@ -554,7 +554,7 @@ static void i_stream_header_filter_seek(struct istream_private *stream,
 					uoff_t v_offset, bool mark ATTR_UNUSED)
 {
 	struct header_filter_istream *mstream =
-		(struct header_filter_istream *)stream;
+		container_of(stream, struct header_filter_istream, istream);
 
 	if (stream->istream.v_offset == v_offset) {
 		/* just reset the input buffer */
@@ -604,7 +604,7 @@ static int
 i_stream_header_filter_stat(struct istream_private *stream, bool exact)
 {
 	struct header_filter_istream *mstream =
-		(struct header_filter_istream *)stream;
+		container_of(stream, struct header_filter_istream, istream);
 	const struct stat *st;
 	uoff_t old_offset;
 
@@ -673,7 +673,7 @@ i_stream_header_filter_snapshot(struct istream_private *stream,
 				struct istream_snapshot *prev_snapshot)
 {
 	struct header_filter_istream *mstream =
-		(struct header_filter_istream *)stream;
+		container_of(stream, struct header_filter_istream, istream);
 	struct header_filter_istream_snapshot *snapshot;
 
 	if (stream->buffer != mstream->hdr_buf->data) {
