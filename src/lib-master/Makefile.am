@@ -39,6 +39,7 @@ headers = \
 	master-service-ssl.h \
 	service-settings.h \
 	stats-client.h \
+	storage-version.h \
 	syslog-util.h
 
 pkginc_libdir=$(pkgincludedir)
