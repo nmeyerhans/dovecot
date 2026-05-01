@@ -95,4 +95,9 @@ master_service_get_service_settings(struct master_service *service);
 const char *
 master_service_get_import_environment_keyvals(struct master_service *service);
 
+/* Returns TRUE if version is in the list of dovecot_config_version values
+   accepted by this build. Sets *error_r to a descriptive list of supported
+   versions on FALSE. */
+bool dovecot_config_version_find(const char *version, const char **error_r);
+
 #endif
