@@ -142,9 +142,11 @@ int var_expand_program_execute(string_t *dest, const struct var_expand_program *
 		if (state.transfer_set) {
 			if (!program->only_literal && !state.transfer_safe &&
 			    params->escape_func != NULL) {
-				str_append(state.result,
-					   params->escape_func(str_c(state.transfer),
-							       params->escape_context));
+				const char *escaped;
+				if (params->escape_func(str_c(state.transfer), &escaped,
+							params->escape_context, error_r) < 0)
+					return -1;
+				str_append(state.result, escaped);
 			} else
 				str_append_str(state.result, state.transfer);
 		} else {
