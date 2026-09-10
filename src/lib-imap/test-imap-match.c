@@ -2,6 +2,7 @@
 
 #include "lib.h"
 #include "imap-match.h"
+#include "str.h"
 #include "test-common.h"
 
 struct test_imap_match {
@@ -88,6 +89,56 @@ static void test_imap_match(void)
 	test_end();
 }
 
+static void test_imap_match_no_redos(void)
+{
+	struct imap_match_glob *glob;
+	pool_t pool;
+	const unsigned int wildcard_count = 1000;
+	string_t *mailbox_name, *pattern;
+	unsigned int i;
+
+	pool = pool_alloconly_create("imap match redos", 1024);
+	test_begin("imap match no redos");
+
+	mailbox_name = str_new(pool, 256);
+	for (i = 0; i < 255; i++)
+		str_append_c(mailbox_name, 'a');
+
+	pattern = str_new(pool, wildcard_count * 2 + 10);
+	for (i = 0; i < 255; i++)
+		str_append(pattern, "%a");
+	glob = imap_match_init(pool, str_c(pattern), FALSE, '/');
+	test_assert(imap_match(glob, str_c(mailbox_name)) == IMAP_MATCH_YES);
+
+	str_truncate(pattern, 0);
+	for (i = 0; i < wildcard_count; i++)
+		str_append(pattern, "%a");
+	glob = imap_match_init(pool, str_c(pattern), FALSE, '/');
+	test_assert(imap_match(glob, str_c(mailbox_name)) == IMAP_MATCH_NO);
+
+	str_append_c(pattern, 'b');
+	glob = imap_match_init(pool, str_c(pattern), FALSE, '/');
+	test_assert(imap_match(glob, str_c(mailbox_name)) == IMAP_MATCH_NO);
+
+	str_truncate(pattern, 0);
+	for (i = 0; i < wildcard_count; i++)
+		str_append(pattern, "*a");
+	str_append_c(pattern, 'b');
+	glob = imap_match_init(pool, str_c(pattern), FALSE, '/');
+	test_assert(imap_match(glob, str_c(mailbox_name)) == IMAP_MATCH_CHILDREN);
+	p_clear(pool);
+
+	glob = imap_match_init(pool, "%a%a%a%a%ab", FALSE, '/');
+	test_assert(imap_match(glob, "aaaaab") == IMAP_MATCH_YES);
+	p_clear(pool);
+
+	glob = imap_match_init(pool, "%a%a%a%a%ab", FALSE, '/');
+	test_assert(imap_match(glob, "aaaaa") == IMAP_MATCH_NO);
+
+	pool_unref(&pool);
+	test_end();
+}
+
 static void test_imap_match_globs_equal(void)
 {
 	struct imap_match_glob *glob;
@@ -120,6 +171,7 @@ int main(void)
 {
 	static void (*const test_functions[])(void) = {
 		test_imap_match,
+		test_imap_match_no_redos,
 		test_imap_match_globs_equal,
 		NULL
 	};

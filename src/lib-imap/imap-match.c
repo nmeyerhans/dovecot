@@ -9,9 +9,44 @@
 
 #include <ctype.h>
 
+/* Pattern matching is implemented as a Thompson-style NFA simulation.
+   Each byte in the compressed pattern becomes one NFA state:
+
+     LITERAL - must consume a matching byte, with inboxcase fallback
+     PERCENT - may consume any number of non-separator bytes
+     STAR    - may consume any number of bytes, including separators
+
+   A virtual ACCEPT position sits at index n_states.  Simulation tracks the
+   set of active positions in boolean arrays.  Epsilon transitions (skipping
+   a PERCENT or STAR without consuming) are applied as a single forward pass,
+   because the NFA is linear: each state can only epsilon-skip to i+1.
+
+   Complexity is O(n_data * n_pattern), regardless of wildcard count or
+   pattern shape, so there is no recursive backtracking and no way for a
+   malicious pattern or mailbox name to trigger exponential CPU usage.
+
+   This 2.4.1 backport keeps the historical byte-oriented matching model.
+   The upstream fix operates on grapheme clusters, but backporting that would
+   require additional Unicode matching changes outside the minimal ReDoS fix. */
+
+enum imap_match_nfa_type {
+	IMAP_MATCH_NFA_LITERAL = 0,
+	IMAP_MATCH_NFA_PERCENT,
+	IMAP_MATCH_NFA_STAR
+};
+
+struct imap_match_nfa_state {
+	enum imap_match_nfa_type type;
+	bool sep_accept;
+	unsigned char ch;
+};
+
 struct imap_match_pattern {
 	const char *pattern;
 	bool inboxcase;
+
+	unsigned int n_states;
+	struct imap_match_nfa_state *states;
 };
 
 struct imap_match_glob {
@@ -21,13 +56,6 @@ struct imap_match_glob {
 
 	char sep;
 	char patterns_data[FLEXIBLE_ARRAY_MEMBER];
-};
-
-struct imap_match_context {
-	const char *inboxcase_end;
-
-	char sep;
-	bool inboxcase;
 };
 
 /* name of "INBOX" - must not have repeated substrings */
@@ -108,6 +136,48 @@ static bool pattern_is_inboxcase(const char *pattern, char separator)
 	return TRUE;
 }
 
+static void
+imap_match_compile(pool_t pool, struct imap_match_pattern *pat, char sep)
+{
+	unsigned int i;
+
+	pat->n_states = strlen(pat->pattern);
+	pat->states = pat->n_states == 0 ? NULL :
+		p_new(pool, struct imap_match_nfa_state, pat->n_states);
+
+	for (i = 0; i < pat->n_states; i++) {
+		struct imap_match_nfa_state *state = &pat->states[i];
+		unsigned char ch = (unsigned char)pat->pattern[i];
+
+		if (ch == '%')
+			state->type = IMAP_MATCH_NFA_PERCENT;
+		else if (ch == '*')
+			state->type = IMAP_MATCH_NFA_STAR;
+		else {
+			state->type = IMAP_MATCH_NFA_LITERAL;
+			state->ch = ch;
+		}
+	}
+
+	for (i = pat->n_states; i > 0; i--) {
+		unsigned int idx = i - 1;
+		const struct imap_match_nfa_state *state = &pat->states[idx];
+		bool consume_sep =
+			state->type == IMAP_MATCH_NFA_STAR ||
+			(state->type == IMAP_MATCH_NFA_LITERAL &&
+			 state->ch == (unsigned char)sep);
+		bool eps_skippable =
+			state->type == IMAP_MATCH_NFA_PERCENT ||
+			state->type == IMAP_MATCH_NFA_STAR;
+		bool next_sep_accept =
+			idx + 1 < pat->n_states ?
+			pat->states[idx + 1].sep_accept : FALSE;
+
+		pat->states[idx].sep_accept =
+			consume_sep || (eps_skippable && next_sep_accept);
+	}
+}
+
 static struct imap_match_glob *
 imap_match_init_multiple_real(pool_t pool, const char *const *patterns,
 			      bool inboxcase, char separator)
@@ -138,7 +208,7 @@ imap_match_init_multiple_real(pool_t pool, const char *const *patterns,
 	glob->pool = pool;
 	glob->sep = separator;
 
-	/* copy pattern strings to our allocated memory */
+	/* copy pattern strings to our allocated memory and compile NFAs */
 	for (i = 0, pos = 0; i < patterns_count; i++) {
 		len = strlen(match_patterns[i].pattern) + 1;
 		i_assert(pos + len <= patterns_data_len);
@@ -148,6 +218,8 @@ imap_match_init_multiple_real(pool_t pool, const char *const *patterns,
 		       match_patterns[i].pattern, len);
 		match_patterns[i].pattern = glob->patterns_data + pos;
 		pos += len;
+
+		imap_match_compile(pool, &match_patterns[i], separator);
 	}
 	glob->patterns = match_patterns;
 	return glob;
@@ -172,8 +244,15 @@ imap_match_init_multiple(pool_t pool, const char *const *patterns,
 
 void imap_match_deinit(struct imap_match_glob **glob)
 {
+	struct imap_match_pattern *p;
+
 	if (glob == NULL || *glob == NULL)
 		return;
+
+	for (p = (*glob)->patterns; p->pattern != NULL; p++) {
+		if (p->states != NULL)
+			p_free((*glob)->pool, p->states);
+	}
 	p_free((*glob)->pool, (*glob)->patterns);
 	p_free((*glob)->pool, *glob);
 	*glob = NULL;
@@ -230,148 +309,136 @@ bool imap_match_globs_equal(const struct imap_match_glob *glob1,
 	return p1->pattern == p2->pattern;
 }
 
-#define CMP_CUR_CHR(ctx, data, pattern) \
-	(*(data) == *(pattern) || \
-	 (i_toupper(*(data)) == i_toupper(*(pattern)) && \
-	 (data) < (ctx)->inboxcase_end))
-
-static enum imap_match_result
-match_sub(struct imap_match_context *ctx, const char **data_p,
-	  const char **pattern_p)
+static bool
+literal_matches(const struct imap_match_nfa_state *state,
+		unsigned char data_ch, bool inboxcase_pos)
 {
-	enum imap_match_result ret, match;
+	if (state->ch == data_ch)
+		return TRUE;
+	return inboxcase_pos &&
+		i_toupper(data_ch) == i_toupper(state->ch);
+}
+
+static void
+nfa_eps_close(const struct imap_match_pattern *pat, bool *bits)
+{
 	unsigned int i;
-	const char *data = *data_p, *pattern = *pattern_p;
 
-	/* match all non-wildcards */
-	i = 0;
-	while (pattern[i] != '\0' && pattern[i] != '*' && pattern[i] != '%') {
-		if (!CMP_CUR_CHR(ctx, data+i, pattern+i)) {
-			if (data[i] != '\0')
-				return IMAP_MATCH_NO;
-			if (pattern[i] == ctx->sep)
-				return IMAP_MATCH_CHILDREN;
-			if (i > 0 && pattern[i-1] == ctx->sep) {
-				/* data="foo/" pattern = "foo/bar/%" */
-				return IMAP_MATCH_CHILDREN;
-			}
-			return IMAP_MATCH_NO;
-		}
-		i++;
+	for (i = 0; i < pat->n_states; i++) {
+		if (!bits[i])
+			continue;
+		if (pat->states[i].type == IMAP_MATCH_NFA_PERCENT ||
+		    pat->states[i].type == IMAP_MATCH_NFA_STAR)
+			bits[i + 1] = TRUE;
 	}
-	data += i;
-	pattern += i;
-
-	if (*data == '\0' && *data_p != data && data[-1] == ctx->sep &&
-	    *pattern != '\0') {
-		/* data="/" pattern="/%..." */
-		match = IMAP_MATCH_CHILDREN;
-	} else {
-		match = IMAP_MATCH_NO;
-	}
-	while (*pattern == '%') {
-		pattern++;
-
-		if (*pattern == '\0') {
-			/* match, if this is the last hierarchy */
-			while (*data != '\0' && *data != ctx->sep)
-				data++;
-			break;
-		}
-
-		/* skip over this hierarchy */
-		while (*data != '\0') {
-			if (CMP_CUR_CHR(ctx, data, pattern)) {
-				ret = match_sub(ctx, &data, &pattern);
-				if (ret == IMAP_MATCH_YES)
-					break;
-
-				match |= ret;
-			}
-
-			if (*data == ctx->sep)
-				break;
-
-			data++;
-		}
-	}
-
-	if (*pattern != '*') {
-		if (*data == '\0' && *pattern != '\0') {
-			if (*pattern == ctx->sep)
-				match |= IMAP_MATCH_CHILDREN;
-			return match;
-		}
-
-		if (*data != '\0') {
-			if (*pattern == '\0' && *data == ctx->sep)
-				match |= IMAP_MATCH_PARENT;
-			return match;
-		}
-	}
-
-	*data_p = data;
-	*pattern_p = pattern;
-	return IMAP_MATCH_YES;
 }
 
 static enum imap_match_result
-imap_match_pattern(struct imap_match_context *ctx,
-		   const char *data, const char *pattern)
+imap_match_pattern_run(const struct imap_match_pattern *pat,
+		       const char *data, char sep, bool inboxcase_pattern)
 {
-	enum imap_match_result ret, match;
+	const char *inboxcase_end = data;
+	unsigned int n_bits = pat->n_states + 1;
+	enum imap_match_result result = IMAP_MATCH_NO;
+	bool parent_flag = FALSE;
+	bool data_ends_with_sep = FALSE;
+	bool *cur, *next;
+	const unsigned char *p;
 
-	ctx->inboxcase_end = data;
-	if (ctx->inboxcase && strncasecmp(data, inbox, INBOXLEN) == 0 &&
-	    (data[INBOXLEN] == '\0' || data[INBOXLEN] == ctx->sep)) {
-		/* data begins with INBOX/, use case-insensitive comparison
-		   for it */
-		ctx->inboxcase_end += INBOXLEN;
+	if (inboxcase_pattern &&
+	    strncasecmp(data, inbox, INBOXLEN) == 0 &&
+	    (data[INBOXLEN] == '\0' || data[INBOXLEN] == sep)) {
+		inboxcase_end += INBOXLEN;
 	}
 
-	if (*pattern != '*') {
-		/* handle the pattern up to the first '*' */
-		ret = match_sub(ctx, &data, &pattern);
-		if (ret != IMAP_MATCH_YES || *pattern == '\0')
-			return ret;
-	}
+	cur = t_new(bool, n_bits);
+	next = t_new(bool, n_bits);
+	memset(cur, 0, n_bits * sizeof(*cur));
+	memset(next, 0, n_bits * sizeof(*next));
 
-	match = IMAP_MATCH_CHILDREN;
-	while (*pattern == '*') {
-		pattern++;
+	cur[0] = TRUE;
+	nfa_eps_close(pat, cur);
 
-		if (*pattern == '\0')
-			return IMAP_MATCH_YES;
+	for (p = (const unsigned char *)data; *p != '\0'; p++) {
+		unsigned int i;
+		unsigned char ch = *p;
+		bool ch_is_sep = ch == (unsigned char)sep;
+		bool inboxcase_pos = (const char *)p < inboxcase_end;
 
-		while (*data != '\0') {
-			if (CMP_CUR_CHR(ctx, data, pattern)) {
-				ret = match_sub(ctx, &data, &pattern);
-				if (ret == IMAP_MATCH_YES)
-					break;
-				match |= ret;
+		if (ch_is_sep && cur[pat->n_states])
+			parent_flag = TRUE;
+
+		memset(next, 0, n_bits * sizeof(*next));
+		for (i = 0; i < pat->n_states; i++) {
+			const struct imap_match_nfa_state *state;
+
+			if (!cur[i])
+				continue;
+
+			state = &pat->states[i];
+			switch (state->type) {
+			case IMAP_MATCH_NFA_LITERAL:
+				if (literal_matches(state, ch, inboxcase_pos))
+					next[i + 1] = TRUE;
+				break;
+			case IMAP_MATCH_NFA_PERCENT:
+				if (!ch_is_sep)
+					next[i] = TRUE;
+				break;
+			case IMAP_MATCH_NFA_STAR:
+				next[i] = TRUE;
+				break;
 			}
-
-			data++;
 		}
+
+		{
+			bool *tmp = cur;
+			cur = next;
+			next = tmp;
+		}
+		nfa_eps_close(pat, cur);
+		data_ends_with_sep = ch_is_sep;
 	}
 
-	return *data == '\0' && *pattern == '\0' ?
-		IMAP_MATCH_YES : match;
+	if (cur[pat->n_states])
+		result = IMAP_MATCH_YES;
+	else {
+		unsigned int i;
+		bool has_nonaccept = FALSE;
+		bool has_sep_accept = FALSE;
+
+		for (i = 0; i < pat->n_states; i++) {
+			if (!cur[i])
+				continue;
+			has_nonaccept = TRUE;
+			if (pat->states[i].sep_accept) {
+				has_sep_accept = TRUE;
+				break;
+			}
+		}
+
+		if (has_nonaccept && (data_ends_with_sep || has_sep_accept))
+			result |= IMAP_MATCH_CHILDREN;
+		if (parent_flag)
+			result |= IMAP_MATCH_PARENT;
+	}
+
+	return result;
 }
 
 enum imap_match_result
 imap_match(struct imap_match_glob *glob, const char *data)
 {
-	struct imap_match_context ctx;
 	unsigned int i;
 	enum imap_match_result ret, match;
 
 	match = IMAP_MATCH_NO;
-	ctx.sep = glob->sep;
 	for (i = 0; glob->patterns[i].pattern != NULL; i++) {
-		ctx.inboxcase = glob->patterns[i].inboxcase;
-
-		ret = imap_match_pattern(&ctx, data, glob->patterns[i].pattern);
+		T_BEGIN {
+			ret = imap_match_pattern_run(&glob->patterns[i], data,
+						     glob->sep,
+						     glob->patterns[i].inboxcase);
+		} T_END;
 		if (ret == IMAP_MATCH_YES)
 			return IMAP_MATCH_YES;
 
