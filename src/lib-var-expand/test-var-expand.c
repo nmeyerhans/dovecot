@@ -611,6 +611,7 @@ static void test_var_expand_escape(void)
 		{ .key = "escape", .value = "'hello' \"world\"", },
 		{ .key = "first", .value = "bobby" },
 		{ .key = "nasty", .value = "\';-- SELECT * FROM bobby.tables" },
+		{ .key = "feisty", .value = "' OR '1'='1" },
 		VAR_EXPAND_TABLE_END
 	};
 
@@ -653,6 +654,10 @@ static void test_var_expand_escape(void)
 		{ .in = "%{literal(\"\\\"\\\\hello\\\\world\\\"\")}", .out = "'\"\\hello\\world\"'", .ret = 0 },
 		/* Unsupported escape sequence */
 		{ .in = "%{literal('\\z')}", .out = "Invalid character escape", .ret = -1 },
+
+		/* safe filter */
+		{ .in = "%{feisty}", "'\\' OR \\'1\\'=\\'1'", .ret = 0 },
+		{ .in = "%{clean|safe} and %{feisty}", "hello world and '\\' OR \\'1\\'=\\'1'", .ret = 0 },
 	};
 
 	const struct var_expand_params params = {

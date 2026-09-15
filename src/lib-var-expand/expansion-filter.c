@@ -1130,6 +1130,14 @@ static int fn_text(const struct var_expand_statement *stmt,
 	return 0;
 }
 
+static int fn_safe(const struct var_expand_statement *stmt ATTR_UNUSED,
+		   struct var_expand_state *state,
+		   const char **error_r ATTR_UNUSED)
+{
+	state->transfer_safe = TRUE;
+	return 0;
+}
+
 static const struct var_expand_filter var_expand_builtin_filters[] = {
 	{ .name = "lookup", .filter = fn_lookup },
 	{ .name = "literal", .filter = fn_literal },
@@ -1167,6 +1175,7 @@ static const struct var_expand_filter var_expand_builtin_filters[] = {
 	{ .name = "text", .filter = fn_text },
 	{ .name = "encrypt", .filter = expansion_filter_encrypt },
 	{ .name = "decrypt", .filter = expansion_filter_decrypt },
+	{ .name = "safe", .filter = fn_safe },
 	{ .name = NULL }
 };
 

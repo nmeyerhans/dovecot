@@ -140,7 +140,8 @@ int var_expand_program_execute(string_t *dest, const struct var_expand_program *
 		if (state.transfer_binary)
 			var_expand_state_set_transfer(&state, binary_to_hex(state.transfer->data, state.transfer->used));
 		if (state.transfer_set) {
-			if (!program->only_literal && params->escape_func != NULL) {
+			if (!program->only_literal && !state.transfer_safe &&
+			    params->escape_func != NULL) {
 				str_append(state.result,
 					   params->escape_func(str_c(state.transfer),
 							       params->escape_context));

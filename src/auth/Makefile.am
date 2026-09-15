@@ -131,6 +131,8 @@ auth_common_sources = \
 	$(ldap_sources) \
 	$(lua_sources)
 
+test_auth_ldadd_plugins =
+
 headers = \
 	auth.h \
 	auth-cache.h \
@@ -176,6 +178,7 @@ libauthdb_ldap_la_LDFLAGS = -module -avoid-version -shared
 libauthdb_ldap_la_LIBADD = $(LIBDOVECOT_LDAP) $(LDAP_LIBS)
 libauthdb_ldap_la_CPPFLAGS = $(AM_CPPFLAGS) -DPLUGIN_BUILD
 libauthdb_ldap_la_SOURCES = $(ldap_sources)
+test_auth_ldadd_plugins += libauthdb_ldap.la
 else
 auth_libs += $(LIBDOVECOT_LDAP)
 endif
@@ -185,6 +188,7 @@ libauthdb_lua_la_LDFLAGS = -module -avoid-version -shared
 libauthdb_lua_la_LIBADD = $(LIBDOVECOT_LUA)
 libauthdb_lua_la_CPPFLAGS = $(AM_CPPFLAGS) -DPLUGIN_BUILD
 libauthdb_lua_la_SOURCES = $(lua_sources)
+test_auth_ldadd_plugins += libauthdb_lua.la
 endif
 
 libauthdb_imap_la_LDFLAGS = -module -avoid-version -shared
@@ -222,12 +226,13 @@ test_auth_SOURCES = \
 	test-auth-request-var-expand.c \
 	test-auth-request-fields.c \
 	test-username-filter.c \
+	test-ldap.c \
 	test-lua.c \
 	test-mock.c \
 	test-main.c
 
-test_auth_LDADD = $(LIBDOVECOT) $(auth_libs) $(AUTH_LIBS) $(LUA_LIBS)
-test_auth_DEPENDENCIES = $(pkglibexec_PROGRAMS) $(LIBDOVECOT_DEPS)
+test_auth_LDADD = $(test_auth_ldadd_plugins) $(LIBDOVECOT) $(LIBDOVECOT_LUA) $(auth_libs) $(AUTH_LIBS) $(LUA_LIBS)
+test_auth_DEPENDENCIES = $(test_auth_ldadd_plugins) $(pkglibexec_PROGRAMS) $(LIBDOVECOT_DEPS)
 
 test_mech_SOURCES = \
 	$(auth_common_sources) \

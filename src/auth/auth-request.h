@@ -427,6 +427,9 @@ void auth_request_log_finished(struct auth_request *request);
 void auth_request_master_user_login_finish(struct auth_request *request);
 void auth_request_fields_init(struct auth_request *request);
 
+void auth_request_passdb_event_begin(struct auth_request *request);
+void auth_request_passdb_event_end(struct auth_request *request);
+
 void auth_request_passdb_lookup_begin(struct auth_request *request);
 void auth_request_passdb_lookup_end(struct auth_request *request,
 				    enum passdb_result result);

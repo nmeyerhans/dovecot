@@ -122,9 +122,12 @@ static void userdb_ldap_lookup(struct auth_request *auth_request,
 	struct userdb_ldap_request *request;
 	const char *error;
 
+	const struct settings_get_params params = {
+		.escape_func = ldap_escape,
+	};
 	const struct ldap_pre_settings *ldap_pre = NULL;
-	if (settings_get(event, &ldap_pre_setting_parser_info, 0,
-			 &ldap_pre, &error) < 0 ||
+	if (settings_get_params(event, &ldap_pre_setting_parser_info, &params,
+				&ldap_pre, &error) < 0 ||
 	    ldap_pre_settings_post_check(ldap_pre, DB_LDAP_LOOKUP_TYPE_USERDB,
 					 &error) < 0) {
 		e_error(event, "%s", error);
@@ -201,8 +204,11 @@ static void userdb_ldap_iterate_callback(struct ldap_connection *conn,
 			 &set, &error) < 0) {
 		e_error(event, "%s", error);
 		ctx->ctx.failed = TRUE;
-	}
-	else {
+	} else if (!array_is_created(&set->iterate_fields)) {
+		e_error(event, "iterate: No userdb_ldap_iterate_fields specified");
+		ctx->ctx.failed = TRUE;
+		settings_free(set);
+	} else {
 		unsigned int count;
 		const char *const *items = array_get(&set->iterate_fields, &count);
 		for (unsigned int ndx = 0; ndx < count - 1;) {
@@ -255,9 +261,12 @@ userdb_ldap_iterate_init(struct auth_request *auth_request,
 	request = &ctx->request;
 	request->ctx = ctx;
 
+	const struct settings_get_params params = {
+		.escape_func = ldap_escape,
+	};
 	const struct ldap_pre_settings *ldap_pre = NULL;
-	if (settings_get(event, &ldap_pre_setting_parser_info, 0,
-			 &ldap_pre, &error) < 0 ||
+	if (settings_get_params(event, &ldap_pre_setting_parser_info, &params,
+				&ldap_pre, &error) < 0 ||
 	    ldap_pre_settings_post_check(ldap_pre, DB_LDAP_LOOKUP_TYPE_ITERATE,
 					 &error) < 0) {
 		e_error(event, "%s", error);
@@ -328,8 +337,13 @@ static int userdb_ldap_preinit(pool_t pool, struct event *event,
 	if (settings_get(event, &ldap_post_setting_parser_info,
 			 RAW_SETTINGS, &ldap_post, error_r) < 0)
 		goto failed;
-	if (settings_get(event, &ldap_pre_setting_parser_info,
-			 RAW_SETTINGS, &ldap_pre, error_r) < 0)
+
+	const struct settings_get_params params = {
+		.escape_func = ldap_escape,
+		.flags = RAW_SETTINGS,
+	};
+	if (settings_get_params(event, &ldap_pre_setting_parser_info,
+				&params, &ldap_pre, error_r) < 0)
 		goto failed;
 
 	module = p_new(pool, struct ldap_userdb_module, 1);

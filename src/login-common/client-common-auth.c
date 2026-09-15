@@ -3,6 +3,7 @@
 #include "hostpid.h"
 #include "login-common.h"
 #include "array.h"
+#include "base64.h"
 #include "iostream.h"
 #include "istream.h"
 #include "ostream.h"
@@ -863,6 +864,14 @@ void client_auth_respond(struct client *client, const char *response)
 	if (strcmp(response, "*") == 0) {
 		sasl_server_auth_abort(client);
 		return;
+	}
+
+	/* Only accept base64 */
+	for (size_t i = 0; response[i] != '\0'; i++) {
+		if (!base64_is_valid_char(response[i]) && response[i] != '=') {
+			client_auth_fail(client, "Invalid base64 in response");
+			return;
+		}
 	}
 
 	client->auth_client_continue_pending = FALSE;
