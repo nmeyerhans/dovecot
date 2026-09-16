@@ -70,6 +70,7 @@ test_programs = \
 	test-mail-index \
 	test-mail-index-map \
 	test-mail-index-modseq \
+	test-mail-index-strmap \
 	test-mail-index-sync-ext \
 	test-mail-index-transaction-finish \
 	test-mail-index-transaction-update \
@@ -112,6 +113,10 @@ test_mail_index_map_DEPENDENCIES = $(test_deps)
 test_mail_index_modseq_SOURCES = test-mail-index-modseq.c
 test_mail_index_modseq_LDADD = $(noinst_LTLIBRARIES) $(test_libs)
 test_mail_index_modseq_DEPENDENCIES = $(test_deps)
+
+test_mail_index_strmap_SOURCES = test-mail-index-strmap.c
+test_mail_index_strmap_LDADD = $(noinst_LTLIBRARIES) $(test_libs)
+test_mail_index_strmap_DEPENDENCIES = $(test_deps)
 
 test_mail_index_sync_ext_SOURCES = test-mail-index-sync-ext.c
 test_mail_index_sync_ext_LDADD = $(noinst_LTLIBRARIES) $(test_libs)

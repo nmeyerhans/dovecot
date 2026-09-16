@@ -291,24 +291,30 @@ static int mail_index_strmap_open(struct mail_index_strmap_view *view)
 	ret = i_stream_read_bytes(strmap->input, &data, &size,
 				  MAIL_INDEX_STRMAP_HEADER_V1_SIZE);
 	if (ret <= 0) {
-		if (ret < 0) {
+		if (ret < 0 && strmap->input->stream_errno != 0) {
 			mail_index_strmap_set_syscall_error(strmap, "read()");
 			mail_index_strmap_close(strmap);
 		} else {
-			i_assert(ret == 0);
 			mail_index_strmap_view_set_corrupted(view);
 		}
 		return ret;
 	}
 
 	i_zero(&hdr);
-	hdr_size = data[0] == MAIL_INDEX_STRMAP_VERSION_V2 ?
+	memcpy(&hdr, data, MAIL_INDEX_STRMAP_HEADER_V1_SIZE);
+	hdr_size = hdr.version == MAIL_INDEX_STRMAP_VERSION_V2 ?
 		MAIL_INDEX_STRMAP_HEADER_V2_SIZE :
 		MAIL_INDEX_STRMAP_HEADER_V1_SIZE;
 	if (hdr_size > MAIL_INDEX_STRMAP_HEADER_V1_SIZE) {
-		ret = i_stream_read_bytes(strmap->input, &data, &size, hdr_size);
+		size_t tail_size =
+			hdr_size - MAIL_INDEX_STRMAP_HEADER_V1_SIZE;
+
+		i_stream_skip(strmap->input,
+			      MAIL_INDEX_STRMAP_HEADER_V1_SIZE);
+		ret = i_stream_read_bytes(strmap->input, &data, &size,
+					  tail_size);
 		if (ret <= 0) {
-			if (ret < 0) {
+			if (ret < 0 && strmap->input->stream_errno != 0) {
 				mail_index_strmap_set_syscall_error(strmap, "read()");
 				mail_index_strmap_close(strmap);
 			} else {
@@ -316,8 +322,9 @@ static int mail_index_strmap_open(struct mail_index_strmap_view *view)
 			}
 			return ret;
 		}
+		memcpy((unsigned char *)&hdr + MAIL_INDEX_STRMAP_HEADER_V1_SIZE,
+		       data, tail_size);
 	}
-	memcpy(&hdr, data, hdr_size);
 
 	idx_hdr = mail_index_get_header(view->view);
 	uint8_t compat_flags = 0;
