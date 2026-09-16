@@ -154,12 +154,16 @@ submission_client_disconnect(struct client *client, const char *reason)
 	struct submission_client *subm_client =
 		container_of(client, struct submission_client, common);
 
-	/* If the smtp-server connection is already in its close cascade (i.e.
-	   we're being called via its conn_disconnect callback), skip closing
-	   it again. Doing so would null subm_client->conn and prevent the
-	   conn_free callback from invoking client_destroy(). */
+	/* Don't close the smtp-server connection when we're called from within
+	   its own disconnect cascade (i.e. via the conn_disconnect callback).
+	   In that case the connection owns the teardown and will call the
+	   conn_free callback, which needs subm_client->conn to still be set to
+	   invoke client_destroy(). Note that smtp_server_connection_is_closed()
+	   cannot be used here: conn->closed is only set when teardown is
+	   entered via smtp_server_connection_close(), while the disconnected
+	   state is already set before conn_disconnect is called. */
 	if (subm_client->conn != NULL &&
-	    !smtp_server_connection_is_closed(subm_client->conn))
+	    !smtp_server_connection_is_disconnected(subm_client->conn))
 		smtp_server_connection_close(&subm_client->conn, reason);
 }
 

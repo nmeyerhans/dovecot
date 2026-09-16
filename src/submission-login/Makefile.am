@@ -1,9 +1,12 @@
+include $(top_srcdir)/Makefile.test.include
+
 pkglibexecdir = $(libexecdir)/dovecot
 
 pkglibexec_PROGRAMS = submission-login
 
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/lib \
+	-I$(top_srcdir)/src/lib-test \
 	-I$(top_srcdir)/src/lib-settings \
 	-I$(top_srcdir)/src/lib-sasl \
 	-I$(top_srcdir)/src/lib-ssl-iostream \
@@ -34,3 +37,16 @@ noinst_HEADERS = \
 	client-authenticate.h \
 	submission-login-settings.h \
 	submission-proxy.h
+
+test_programs = test-submission-login
+
+LIBDOVECOT_TEST_DEPS = \
+	../lib-dovecot/libdovecot.la
+
+LIBDOVECOT_TEST = \
+	$(LIBDOVECOT_TEST_DEPS) \
+	$(LIBDOVECOT_TEST_LIBS) \
+	$(MODULE_LIBS)
+
+test_submission_login_DEPENDENCIES = $(LIBDOVECOT_TEST_DEPS)
+test_submission_login_LDADD = $(LIBDOVECOT_TEST)

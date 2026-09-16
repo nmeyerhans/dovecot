@@ -730,15 +730,14 @@ int submission_proxy_parse_line(struct client *client, const char *line)
 		LOGIN_PROXY_FAILURE_TYPE_AUTH_REPLIED;
 	if (status == 421) {
 		/* The backend won't accept further AUTH attempts on this
-		   connection. If it signaled 4.7.0, the user's connection
-		   limit (mail_max_userip_connections) was reached; report
-		   that specifically. Otherwise treat as a generic auth
-		   reply (e.g. backend shutting down). The reply was
-		   prepared from the backend's 421 line; forward it to the
-		   client and detach the AUTH command. */
-		failure_type = (null_strcmp(enh_code, "4.7.0") == 0) ?
-			LOGIN_PROXY_FAILURE_TYPE_AUTH_LIMIT_REACHED_REPLIED :
-			LOGIN_PROXY_FAILURE_TYPE_AUTH_REPLIED;
+		   connection. Only Dovecot's specific connection-limit
+		   response is reported as such; any other 421 reply
+		   (including a generic 421 4.7.0 from a non-Dovecot backend)
+		   keeps the normal already-replied auth failure behavior. The
+		   reply was prepared from the backend's 421 line; forward it
+		   to the client and detach the AUTH command. */
+		failure_type = submission_proxy_auth_failure_type(status,
+								 enh_code);
 		i_assert(subm_client->proxy_reply != NULL);
 		smtp_server_reply_submit(subm_client->proxy_reply);
 		subm_client->auth_cmd = NULL;
