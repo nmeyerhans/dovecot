@@ -205,6 +205,7 @@ static void test_mail_index_strmap_truncated_v2_header(void)
 	const struct hash2_table *hash;
 	const char *path;
 	uint32_t last_uid;
+	const size_t sizes[] = { 0, MAIL_INDEX_STRMAP_HEADER_V1_SIZE };
 	int fd;
 
 	test_begin("mail index strmap truncated v2 header");
@@ -214,24 +215,26 @@ static void test_mail_index_strmap_truncated_v2_header(void)
 	i_zero(&hdr);
 	hdr.version = MAIL_INDEX_STRMAP_VERSION_V2;
 	hdr.uid_validity = uid_validity;
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-	if (fd == -1)
-		i_fatal("open(%s) failed: %m", path);
-	test_assert(write_full(fd, &hdr, MAIL_INDEX_STRMAP_HEADER_V1_SIZE) == 0);
-	i_close_fd(&fd);
+	for (unsigned int i = 0; i < N_ELEMENTS(sizes); i++) {
+		fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+		if (fd == -1)
+			i_fatal("open(%s) failed: %m", path);
+		test_assert(write_full(fd, &hdr, sizes[i]) == 0);
+		i_close_fd(&fd);
 
-	strmap = mail_index_strmap_init(index, ".strmap", TRUE);
-	strmap_view = mail_index_strmap_view_open(strmap, view,
-		strmap_test_key_compare, strmap_test_rec_compare,
-		strmap_test_remap, &ctx, &recs, &hash);
-	test_expect_error_string("Corrupted strmap index file");
-	sync = mail_index_strmap_view_sync_init(strmap_view, &last_uid);
-	test_expect_no_more_errors();
-	test_assert(access(path, F_OK) < 0 && errno == ENOENT);
-	mail_index_strmap_view_sync_rollback(&sync);
+		strmap = mail_index_strmap_init(index, ".strmap", TRUE);
+		strmap_view = mail_index_strmap_view_open(strmap, view,
+			strmap_test_key_compare, strmap_test_rec_compare,
+			strmap_test_remap, &ctx, &recs, &hash);
+		test_expect_error_string("Corrupted strmap index file");
+		sync = mail_index_strmap_view_sync_init(strmap_view, &last_uid);
+		test_expect_no_more_errors();
+		test_assert(access(path, F_OK) < 0 && errno == ENOENT);
+		mail_index_strmap_view_sync_rollback(&sync);
 
-	mail_index_strmap_view_close(&strmap_view);
-	mail_index_strmap_deinit(&strmap);
+		mail_index_strmap_view_close(&strmap_view);
+		mail_index_strmap_deinit(&strmap);
+	}
 	mail_index_view_close(&view);
 	test_mail_index_deinit(&index);
 	test_end();

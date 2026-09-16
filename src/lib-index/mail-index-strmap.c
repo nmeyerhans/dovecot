@@ -291,11 +291,10 @@ static int mail_index_strmap_open(struct mail_index_strmap_view *view)
 	ret = i_stream_read_bytes(strmap->input, &data, &size,
 				  MAIL_INDEX_STRMAP_HEADER_V1_SIZE);
 	if (ret <= 0) {
-		if (ret < 0) {
+		if (ret < 0 && strmap->input->stream_errno != 0) {
 			mail_index_strmap_set_syscall_error(strmap, "read()");
 			mail_index_strmap_close(strmap);
 		} else {
-			i_assert(ret == 0);
 			mail_index_strmap_view_set_corrupted(view);
 		}
 		return ret;
