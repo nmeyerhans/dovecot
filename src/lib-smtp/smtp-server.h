@@ -479,6 +479,13 @@ void smtp_server_connection_set_ssl_streams(struct smtp_server_connection *conn,
 void smtp_server_connection_close(struct smtp_server_connection **_conn,
 				  const char *reason) ATTR_NULL(2);
 bool smtp_server_connection_is_closed(struct smtp_server_connection *conn);
+/* Returns TRUE when the connection has entered its disconnect cascade, i.e.
+   the connection is being torn down and its remaining callbacks (conn_disconnect
+   and conn_free) are still to be run or are currently running. Unlike
+   smtp_server_connection_is_closed(), this is already TRUE while the
+   conn_disconnect callback is running, so it can be used by callbacks to detect
+   that the connection itself owns the teardown. */
+bool smtp_server_connection_is_disconnected(struct smtp_server_connection *conn);
 /* Send a reply line directly to the output stream, bypassing the per-command
    reply queue. Useful when the caller is about to close the connection and
    needs the reply on the wire before close/destroy aborts queued replies.

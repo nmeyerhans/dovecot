@@ -20,6 +20,18 @@ bool smtp_reply_is_proxy_redirect(const struct smtp_reply *reply)
 				      SMTP_PROXY_REDIRECT_ENH_CODE);
 }
 
+bool smtp_reply_code_is_conn_limit(unsigned int code, const char *enh_code)
+{
+	return (code == SMTP_PROXY_CONN_LIMIT_CODE && enh_code != NULL &&
+		strcmp(enh_code, SMTP_PROXY_CONN_LIMIT_ENH_CODE_STR) == 0);
+}
+
+bool smtp_reply_is_conn_limit(const struct smtp_reply *reply)
+{
+	return smtp_reply_code_equals(reply, SMTP_PROXY_CONN_LIMIT_CODE,
+				      SMTP_PROXY_CONN_LIMIT_ENH_CODE);
+}
+
 int smtp_proxy_redirect_parse(const char *resp, const char **destuser_r,
 			      const char **host_r, struct ip_addr *ip_r,
 			      in_port_t *port_r, const char **error_r)
